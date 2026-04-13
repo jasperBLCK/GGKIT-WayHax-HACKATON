@@ -1,0 +1,73 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  WayHax — Docker Compose                                   ║
+# ║  Кроссплатформенный запуск: Mac / Ubuntu / Windows          ║
+# ║                                                             ║
+# ║  Использование:                                             ║
+# ║    1. cp .env.example .env  (настроить переменные)          ║
+# ║    2. docker compose up --build                             ║
+# ║    3. Frontend → http://localhost:3000                      ║
+# ║       Backend  → http://localhost:8000                      ║
+# ║       Swagger  → http://localhost:8000/docs                 ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: wayhax-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-WayHax}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-WayHax}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Backend (FastAPI) ───────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wayhax-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-WayHax}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app                          # live-reload при разработке
+      - backend_uploads:/app/app/static/uploads # persistent uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── Frontend (Vite + React) ─────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: wayhax-frontend
+    restart: unless-stopped
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app                         # live-reload при разработке
+      - /app/node_modules                       # не перезатирать node_modules с хоста
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_uploads:
+    driver: local
